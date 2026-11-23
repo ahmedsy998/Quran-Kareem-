@@ -1,0 +1,6 @@
+{
+  "name": "صانع فيديوهات القرآن",
+  "description": "تطبيق احترافي لصناعة فيديوهات تلاوة القرآن الكريم مع مزامنة الآيات وتلوين التشكيل وتصدير MP4.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">صانع فيديوهات القرآن</string>
+    <string name="home_subtitle">أداة احترافية لصناعة مقاطع التلاوة القرآنية</string>
+    <string name="home_continue_project">متابعة آخر مشروع</string>
+    <string name="home_continue_button">متابعة التحرير</string>
+    <string name="home_new_video">فيديو جديد</string>
+    <string name="home_my_projects">مشاريعي المحفوظة</string>
+    <string name="home_batch_queue">معالجة دفعة سور</string>
+    <string name="home_sections_title">أقسام التصميم السريعة</string>
+    <string name="editor_title">محرر الفيديو</string>
+    <string name="action_back">رجوع</string>
+    <string name="action_save">حفظ</string>
+    <string name="action_cancel">إلغاء</string>
+    <string name="action_delete">حذف</string>
+    <string name="action_open">فتح</string>
+    <string name="action_share">مشاركة مباشرة</string>
+    <string name="action_save_gallery">حفظ في المعرض</string>
+    <string name="loading_audio">جاري تحميل وتجهيز التلاوة...</string>
+    <string name="ready_offline">متاح بدون إنترنت</string>
+    <string name="upload_from_phone">رفع من الهاتف</string>
+</resources>
