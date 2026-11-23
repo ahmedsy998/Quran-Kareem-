@@ -25,6 +25,7 @@ import com.example.domain.model.Surah
 import com.example.domain.model.SyncedAyahLine
 import com.example.domain.model.TextLayerStyle
 import com.example.domain.model.VideoProject
+import com.example.util.ArabicTextRenderer
 import com.example.util.MediaExportEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,6 +65,7 @@ data class PlaybackUiState(
     val isPlaying: Boolean = false,
     val currentLineIndex: Int = 0,
     val currentPositionMs: Long = 0L,
+    val currentOffsetInAyahMs: Long = 0L,
     val totalDurationMs: Long = 0L,
     val playbackSpeed: Float = 1.0f
 )
@@ -186,7 +188,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     audioPlayer.pause()
                     audioPlayer.seekTo(0, 0L)
                     _playbackState.update {
-                        it.copy(isPlaying = false, currentLineIndex = 0, currentPositionMs = 0L)
+                        it.copy(
+                            isPlaying = false,
+                            currentLineIndex = 0,
+                            currentPositionMs = 0L,
+                            currentOffsetInAyahMs = 0L
+                        )
                     }
                 }
             }
@@ -218,6 +225,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         currentLineIndex = itemIdx,
                         currentPositionMs = globalPos,
+                        currentOffsetInAyahMs = itemPos,
                         totalDurationMs = pkg.totalDurationMs
                     )
                 }
@@ -226,10 +234,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val pos = audioPlayer.currentPosition.coerceIn(0L, pkg.totalDurationMs)
                 val idx = lines.indexOfFirst { pos >= it.startMs && pos < it.endMs }
                     .let { if (it >= 0) it else if (pos >= lines.last().endMs) lines.lastIndex else 0 }
+                val line = lines[idx]
+                val offsetInLine = (pos - line.startMs).coerceAtLeast(0L)
                 _playbackState.update {
                     it.copy(
                         currentLineIndex = idx,
                         currentPositionMs = pos,
+                        currentOffsetInAyahMs = offsetInLine,
                         totalDurationMs = pkg.totalDurationMs
                     )
                 }
@@ -401,7 +412,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isBismillah = true,
                     audioSourceUri = null,
                     startMs = cursor,
-                    endMs = cursor + 3000L
+                    endMs = cursor + 3000L,
+                    wordTimings = ArabicTextRenderer.buildWordTimings(
+                        text = QuranAssetsLoader.BISMILLAH_TEXT,
+                        ayahDurationMs = 3000L
+                    )
                 )
             )
             cursor += 3000L
@@ -416,7 +431,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isBismillah = false,
                     audioSourceUri = null,
                     startMs = cursor,
-                    endMs = cursor + 4000L
+                    endMs = cursor + 4000L,
+                    wordTimings = ArabicTextRenderer.buildWordTimings(
+                        text = ayah.text,
+                        ayahDurationMs = 4000L
+                    )
                 )
             )
             cursor += 4000L
@@ -467,6 +486,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isPlaying = false,
                         currentLineIndex = 0,
                         currentPositionMs = 0L,
+                        currentOffsetInAyahMs = 0L,
                         totalDurationMs = pkg.totalDurationMs
                     )
                 }
@@ -531,7 +551,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val offsetInLine = (clamped - line.startMs).coerceAtLeast(0L)
                 audioPlayer.seekTo(idx, offsetInLine)
                 _playbackState.update {
-                    it.copy(currentLineIndex = idx, currentPositionMs = clamped)
+                    it.copy(
+                        currentLineIndex = idx,
+                        currentPositionMs = clamped,
+                        currentOffsetInAyahMs = offsetInLine
+                    )
                 }
             }
             is AudioModePayload.FullSurahFile -> {
@@ -549,7 +573,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             seekToGlobalPosition(target.startMs)
         } else {
             _playbackState.update {
-                it.copy(currentLineIndex = index, currentPositionMs = target.startMs)
+                it.copy(
+                    currentLineIndex = index,
+                    currentPositionMs = target.startMs,
+                    currentOffsetInAyahMs = 0L
+                )
             }
         }
     }

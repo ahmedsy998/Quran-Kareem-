@@ -16,6 +16,7 @@ data class Reciter(
     val editionOrFolder: String,
     val mp3QuranReadId: Int? = null,
     val mp3QuranServerUrl: String? = null,
+    val quranComRecitationId: Int? = null,
     val isFavorite: Boolean = false
 ) {
     val supportsExactPerAyah: Boolean
@@ -55,7 +56,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_128,
             editionOrFolder = "ar.alafasy",
             mp3QuranReadId = 123,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/mishary-alafasy/r2/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/mishary-alafasy/r2/",
+            quranComRecitationId = 7
         ),
         Reciter(
             id = "sudais",
@@ -64,7 +66,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_64,
             editionOrFolder = "ar.abdurrahmaansudais",
             mp3QuranReadId = 54,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/abdulrahman-sudais/r1/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/abdulrahman-sudais/r1/",
+            quranComRecitationId = 3
         ),
         Reciter(
             id = "ghamdi",
@@ -91,7 +94,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_64,
             editionOrFolder = "ar.abdulbasitmurattal",
             mp3QuranReadId = 51,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/abdulbasit-abdulsamad/r3/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/abdulbasit-abdulsamad/r3/",
+            quranComRecitationId = 2
         ),
         Reciter(
             id = "minshawi",
@@ -100,7 +104,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_128,
             editionOrFolder = "ar.minshawi",
             mp3QuranReadId = 112,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/muhammad-minshawi/r4/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/muhammad-minshawi/r4/",
+            quranComRecitationId = 9
         ),
         Reciter(
             id = "husary",
@@ -109,7 +114,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_128,
             editionOrFolder = "ar.husary",
             mp3QuranReadId = 118,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/mahmoud-husary/r5/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/mahmoud-husary/r5/",
+            quranComRecitationId = 6
         ),
         Reciter(
             id = "dosari",
@@ -127,7 +133,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_64,
             editionOrFolder = "ar.saoodshuraym",
             mp3QuranReadId = 31,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/saud-shuraim/r1/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/saud-shuraim/r1/",
+            quranComRecitationId = 10
         ),
         Reciter(
             id = "juhany",
@@ -244,7 +251,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_64,
             editionOrFolder = "ar.hanirifai",
             mp3QuranReadId = 89,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/hani-rifai/r1/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/hani-rifai/r1/",
+            quranComRecitationId = 5
         ),
         Reciter(
             id = "abkar",
@@ -272,7 +280,8 @@ object DefaultReciters {
             sourceType = AudioSourceType.ISLAMIC_NETWORK_128,
             editionOrFolder = "ar.shaatree",
             mp3QuranReadId = 4,
-            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/abu-bakr-shatri/r1/"
+            mp3QuranServerUrl = "https://cdn.mp3quran.net/audio/abu-bakr-shatri/r1/",
+            quranComRecitationId = 4
         ),
         Reciter(
             id = "jibreel",

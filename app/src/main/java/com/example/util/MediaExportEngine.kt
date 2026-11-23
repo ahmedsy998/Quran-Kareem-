@@ -442,7 +442,7 @@ private class QuranTextBitmapOverlay(
     private val typefaceCache = mutableMapOf<String, Typeface>()
 
     private var lastLineIndex: Int = -99
-    private var lastScrollBucket: Int = -99
+    private var lastWordIndex: Int = -99
 
     private fun getTypeface(fontId: String): Typeface {
         return typefaceCache.getOrPut(fontId) {
@@ -455,16 +455,13 @@ private class QuranTextBitmapOverlay(
         val timeMs = (presentationTimeUs / 1000L).coerceAtLeast(0L)
         val activeIdx = findLineIndex(timeMs)
         val activeLine = lines.getOrNull(activeIdx)
-        val scrollBucket = if (project.overflowMode == SingleLineOverflowMode.MARQUEE && activeLine != null) {
-            ((timeMs - activeLine.startMs) / 33L).toInt()
-        } else {
-            0
-        }
+        val offsetInAyahMs = if (activeLine != null) (timeMs - activeLine.startMs).coerceAtLeast(0L) else 0L
+        val activeWordIdx = activeLine?.activeWordIndexAt(offsetInAyahMs) ?: 0
 
-        if (activeIdx != lastLineIndex || scrollBucket != lastScrollBucket) {
+        if (activeIdx != lastLineIndex || activeWordIdx != lastWordIndex) {
             lastLineIndex = activeIdx
-            lastScrollBucket = scrollBucket
-            redrawFrame(timeMs, activeIdx)
+            lastWordIndex = activeWordIdx
+            redrawFrame(activeIdx, activeWordIdx)
         }
         return overlayBitmap
     }
@@ -480,7 +477,7 @@ private class QuranTextBitmapOverlay(
         return if (timeMs >= lines.last().endMs) lines.lastIndex else 0
     }
 
-    private fun redrawFrame(timeMs: Long, activeIdx: Int) {
+    private fun redrawFrame(activeIdx: Int, activeWordIdx: Int) {
         canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
         if (drawDimScrim) {
             val dimAlpha = (project.backgroundDim.coerceIn(0f, 0.9f) * 255).toInt()
@@ -506,31 +503,31 @@ private class QuranTextBitmapOverlay(
             if (prevLine != null) {
                 drawSingleLineAyah(
                     line = prevLine,
-                    timeMs = timeMs,
                     yCenter = project.ayahStyle.verticalPosition * height - adjacentOffset,
                     alphaMultiplier = 0.35f,
-                    allowMarquee = false
+                    progressiveWordsOnly = false,
+                    activeWordIdx = 0
                 )
             }
             if (nextLine != null) {
                 drawSingleLineAyah(
                     line = nextLine,
-                    timeMs = timeMs,
                     yCenter = project.ayahStyle.verticalPosition * height + adjacentOffset,
                     alphaMultiplier = 0.35f,
-                    allowMarquee = false
+                    progressiveWordsOnly = false,
+                    activeWordIdx = 0
                 )
             }
         }
 
-        // 3. Active single-line Ayah
+        // 3. Active spoken-words single-line Ayah
         if (currentLine != null && project.ayahStyle.enabled) {
             drawSingleLineAyah(
                 line = currentLine,
-                timeMs = timeMs,
                 yCenter = project.ayahStyle.verticalPosition * height,
                 alphaMultiplier = 1f,
-                allowMarquee = true
+                progressiveWordsOnly = true,
+                activeWordIdx = activeWordIdx
             )
         }
 
@@ -553,63 +550,89 @@ private class QuranTextBitmapOverlay(
 
     private fun drawSingleLineAyah(
         line: SyncedAyahLine,
-        timeMs: Long,
         yCenter: Float,
         alphaMultiplier: Float,
-        allowMarquee: Boolean
+        progressiveWordsOnly: Boolean,
+        activeWordIdx: Int
     ) {
         val style = project.ayahStyle
-        val horizontalMargin = width * 0.06f
-        val maxContentWidth = (width - horizontalMargin * 2f).coerceAtLeast(100f)
-
-        val displayText = if (line.isBismillah) {
-            line.text
-        } else {
-            "${line.text} ﴿${ArabicTextRenderer.toArabicDigits(line.numberInSurah)}﴾"
-        }
+        // Safe margins: 8% padding on each side, max content width = 84% of frame width
+        val horizontalMargin = width * 0.08f
+        val maxContentWidth = (width - horizontalMargin * 2f).coerceAtLeast(60f)
 
         val effectiveOpacity = (style.opacity * alphaMultiplier).coerceIn(0f, 1f)
         val baseColor = ArabicTextRenderer.applyOpacityToArgb(style.colorArgb, effectiveOpacity)
+        val rawAccentHex = if (project.themeStyle.accentHex == style.colorArgb) {
+            0xFFFFD54FL
+        } else {
+            project.themeStyle.accentHex
+        }
+        val highlightColor = ArabicTextRenderer.applyOpacityToArgb(rawAccentHex, effectiveOpacity)
         val tashkeelColor = ArabicTextRenderer.applyOpacityToArgb(project.tashkeelColorArgb, effectiveOpacity)
 
+        val spannable = if (progressiveWordsOnly) {
+            ArabicTextRenderer.buildSpokenWordsSpannable(
+                words = line.wordTimings,
+                fallbackText = line.text,
+                activeWordIndex = activeWordIdx,
+                ayahNumberInSurah = line.numberInSurah,
+                isBismillah = line.isBismillah,
+                normalColorArgb = baseColor,
+                highlightColorArgb = highlightColor,
+                tashkeelEnabled = project.tashkeelColoringEnabled,
+                tashkeelColorArgb = tashkeelColor,
+                tashkeelScale = project.tashkeelScale
+            )
+        } else {
+            val fullText = if (line.isBismillah) {
+                line.text
+            } else {
+                "${line.text} ﴿${ArabicTextRenderer.toArabicDigits(line.numberInSurah)}﴾"
+            }
+            ArabicTextRenderer.buildTashkeelSpannable(
+                text = fullText,
+                baseColorArgb = baseColor,
+                tashkeelEnabled = project.tashkeelColoringEnabled,
+                tashkeelColorArgb = tashkeelColor,
+                tashkeelScale = project.tashkeelScale
+            )
+        }
+
+        val maxTextPx = (style.fontSizeSp * scaleFactor).coerceAtLeast(8f)
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             typeface = getTypeface(style.fontId)
-            textSize = (style.fontSizeSp * scaleFactor).coerceAtLeast(14f)
+            textSize = maxTextPx
             color = baseColor
             if (style.shadowEnabled) {
                 setShadowLayer(8f * scaleFactor, 0f, 3f * scaleFactor, Color.argb((180 * effectiveOpacity).toInt(), 0, 0, 0))
             }
         }
 
-        var measuredWidth = paint.measureText(displayText)
-        if (project.overflowMode == SingleLineOverflowMode.AUTO_SHRINK || !allowMarquee) {
-            val minTextPx = 11f * scaleFactor
-            while (measuredWidth > maxContentWidth && paint.textSize > minTextPx) {
-                paint.textSize = (paint.textSize * 0.92f).coerceAtLeast(minTextPx)
-                measuredWidth = paint.measureText(displayText)
+        // Mandatory auto-fit: shrink below user's max font size until single line fits inside maxContentWidth
+        val safeTargetWidth = maxContentWidth * 0.96f
+        val unconstrainedWidth = (width * 4).coerceAtLeast(4000)
+        var guard = 0
+        while (paint.textSize > 4.5f && guard < 35) {
+            val testLayout = StaticLayout.Builder
+                .obtain(spannable, 0, spannable.length, paint, unconstrainedWidth)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setMaxLines(1)
+                .setIncludePad(true)
+                .build()
+            val lineW = if (testLayout.lineCount > 0) testLayout.getLineWidth(0) else 0f
+            val plainW = paint.measureText(spannable, 0, spannable.length)
+            if (maxOf(lineW, plainW) <= safeTargetWidth) {
+                break
             }
+            paint.textSize = (paint.textSize * 0.91f).coerceAtLeast(4f)
+            guard++
         }
 
-        val spannable = ArabicTextRenderer.buildTashkeelSpannable(
-            text = displayText,
-            baseColorArgb = baseColor,
-            tashkeelEnabled = project.tashkeelColoringEnabled,
-            tashkeelColorArgb = tashkeelColor,
-            tashkeelScale = project.tashkeelScale
-        )
-
-        val layoutWidth = if (project.overflowMode == SingleLineOverflowMode.MARQUEE && allowMarquee && measuredWidth > maxContentWidth) {
-            (measuredWidth + 32f).roundToInt()
-        } else {
-            maxContentWidth.roundToInt()
-        }
-
-        val alignment = when {
-            project.overflowMode == SingleLineOverflowMode.MARQUEE && allowMarquee && measuredWidth > maxContentWidth ->
-                Layout.Alignment.ALIGN_NORMAL
-            style.alignment == TextAlignmentMode.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
-            style.alignment == TextAlignmentMode.LEFT -> Layout.Alignment.ALIGN_NORMAL
-            else -> Layout.Alignment.ALIGN_CENTER
+        val layoutWidth = maxContentWidth.roundToInt()
+        val alignment = when (style.alignment) {
+            TextAlignmentMode.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
+            TextAlignmentMode.LEFT -> Layout.Alignment.ALIGN_NORMAL
+            TextAlignmentMode.CENTER -> Layout.Alignment.ALIGN_CENTER
         }
 
         val staticLayout = StaticLayout.Builder
@@ -622,17 +645,7 @@ private class QuranTextBitmapOverlay(
         canvas.save()
         canvas.clipRect(horizontalMargin, 0f, width - horizontalMargin, height.toFloat())
         val topY = (yCenter - staticLayout.height / 2f).coerceIn(8f, (height - staticLayout.height - 8f).coerceAtLeast(8f))
-
-        val xOffset = if (project.overflowMode == SingleLineOverflowMode.MARQUEE && allowMarquee && measuredWidth > maxContentWidth) {
-            val overflowPx = measuredWidth - maxContentWidth + 24f * scaleFactor
-            val progress = ((timeMs - line.startMs).toFloat() / line.durationMs.toFloat()).coerceIn(0f, 1f)
-            // RTL marquee: start showing the right edge of the Arabic line and gently scroll leftward
-            horizontalMargin - overflowPx * (1f - progress)
-        } else {
-            horizontalMargin
-        }
-
-        canvas.translate(xOffset, topY)
+        canvas.translate(horizontalMargin, topY)
         staticLayout.draw(canvas)
         canvas.restore()
     }
@@ -648,7 +661,8 @@ private class QuranTextBitmapOverlay(
             }
         }
 
-        val maxW = (width * 0.86f).roundToInt().coerceAtLeast(80)
+        val marginH = width * 0.08f
+        val maxW = (width - marginH * 2f).roundToInt().coerceAtLeast(80)
         val textWidth = paint.measureText(text)
         if (textWidth > maxW) {
             paint.textSize = paint.textSize * (maxW / textWidth) * 0.96f
@@ -658,7 +672,6 @@ private class QuranTextBitmapOverlay(
         val textHeight = fm.descent - fm.ascent
 
         val yCenter = (style.verticalPosition.coerceIn(0.04f, 0.96f)) * height
-        val marginH = width * 0.07f
         val xStart = when (style.alignment) {
             TextAlignmentMode.RIGHT -> width - marginH - finalTextWidth
             TextAlignmentMode.LEFT -> marginH

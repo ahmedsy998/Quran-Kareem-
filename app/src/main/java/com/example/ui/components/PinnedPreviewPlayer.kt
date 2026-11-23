@@ -5,7 +5,6 @@ import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,18 +53,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -134,6 +137,7 @@ fun PinnedPreviewPlayer(
                     reciterName = reciterName,
                     lines = lines,
                     currentLineIndex = playbackState.currentLineIndex,
+                    currentOffsetInAyahMs = playbackState.currentOffsetInAyahMs,
                     showSafeGuides = showSafeGuides,
                     accentBorder = accentBorder,
                     maxHeight = 235.dp,
@@ -273,6 +277,7 @@ fun PinnedPreviewPlayer(
                             reciterName = reciterName,
                             lines = lines,
                             currentLineIndex = playbackState.currentLineIndex,
+                            currentOffsetInAyahMs = playbackState.currentOffsetInAyahMs,
                             showSafeGuides = showSafeGuides,
                             accentBorder = accentBorder,
                             maxHeight = 560.dp,
@@ -407,6 +412,7 @@ fun VideoStageCanvas(
     reciterName: String,
     lines: List<SyncedAyahLine>,
     currentLineIndex: Int,
+    currentOffsetInAyahMs: Long,
     showSafeGuides: Boolean,
     accentBorder: Color,
     maxHeight: Dp,
@@ -427,6 +433,7 @@ fun VideoStageCanvas(
     ) {
         val shortEdgeDp = minOf(maxWidth.value, maxHeight.value)
         val previewScale = (shortEdgeDp / 360f).coerceIn(0.35f, 1.35f)
+        val safeSideMargin = maxWidth * 0.08f
 
         // 1. Background Media (Image or Muted Video)
         BackgroundMediaLayer(
@@ -447,12 +454,12 @@ fun VideoStageCanvas(
                 .background(Color.Black.copy(alpha = project.backgroundDim.coerceIn(0f, 0.9f)))
         )
 
-        // 3. Optional Safe Margins Guide
+        // 3. Optional Safe Margins Guide (8% horizontal safe margins)
         if (showSafeGuides) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = (maxWidth * 0.06f), vertical = (maxHeight * 0.08f))
+                    .padding(horizontal = safeSideMargin, vertical = (maxHeight * 0.08f))
                     .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
             )
         }
@@ -463,29 +470,33 @@ fun VideoStageCanvas(
                 text = surahName,
                 style = project.surahTitleStyle,
                 containerHeight = maxHeight,
+                safeSideMargin = safeSideMargin,
                 scale = previewScale
             )
         }
 
-        // 5. Optional Dimmed Previous/Next Ayahs + Synchronized Single-Line Active Ayah
+        // 5. Optional Dimmed Previous/Next Ayahs + Synchronized Spoken-Words Active Ayah
         if (currentLine != null && project.ayahStyle.enabled) {
             val ayahCenterFraction = project.ayahStyle.verticalPosition.coerceIn(0.12f, 0.88f)
             val adjGap = (project.ayahStyle.fontSizeSp * 1.55f * previewScale).dp
+            val activeWordIndex = currentLine.activeWordIndexAt(currentOffsetInAyahMs)
 
             if (project.showDimmedAdjacentAyahs && prevLine != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
+                        .padding(horizontal = safeSideMargin)
                         .align(Alignment.TopCenter)
-                        .padding(top = (maxHeight * ayahCenterFraction - adjGap).coerceAtLeast(8.dp))
+                        .padding(top = (maxHeight * ayahCenterFraction - adjGap).coerceAtLeast(8.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
                     SingleLineAyahText(
                         line = prevLine,
                         project = project,
                         previewScale = previewScale,
                         opacityMultiplier = 0.35f,
-                        allowMarquee = false
+                        progressiveWordsOnly = false,
+                        activeWordIndex = 0
                     )
                 }
             }
@@ -493,16 +504,18 @@ fun VideoStageCanvas(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
+                    .padding(horizontal = safeSideMargin)
                     .align(Alignment.TopCenter)
-                    .padding(top = (maxHeight * ayahCenterFraction - (18 * previewScale).dp).coerceAtLeast(4.dp))
+                    .padding(top = (maxHeight * ayahCenterFraction - (18 * previewScale).dp).coerceAtLeast(4.dp)),
+                contentAlignment = Alignment.Center
             ) {
                 SingleLineAyahText(
                     line = currentLine,
                     project = project,
                     previewScale = previewScale,
                     opacityMultiplier = 1f,
-                    allowMarquee = true
+                    progressiveWordsOnly = true,
+                    activeWordIndex = activeWordIndex
                 )
             }
 
@@ -510,16 +523,18 @@ fun VideoStageCanvas(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
+                        .padding(horizontal = safeSideMargin)
                         .align(Alignment.TopCenter)
-                        .padding(top = (maxHeight * ayahCenterFraction + adjGap * 0.7f).coerceAtMost(maxHeight - 24.dp))
+                        .padding(top = (maxHeight * ayahCenterFraction + adjGap * 0.7f).coerceAtMost(maxHeight - 24.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
                     SingleLineAyahText(
                         line = nextLine,
                         project = project,
                         previewScale = previewScale,
                         opacityMultiplier = 0.35f,
-                        allowMarquee = false
+                        progressiveWordsOnly = false,
+                        activeWordIndex = 0
                     )
                 }
             }
@@ -531,6 +546,7 @@ fun VideoStageCanvas(
                 text = "القارئ: $reciterName",
                 style = project.reciterTitleStyle,
                 containerHeight = maxHeight,
+                safeSideMargin = safeSideMargin,
                 scale = previewScale
             )
         }
@@ -541,6 +557,7 @@ fun VideoStageCanvas(
                 text = project.watermarkText.trim(),
                 style = project.watermarkStyle,
                 containerHeight = maxHeight,
+                safeSideMargin = safeSideMargin,
                 scale = previewScale
             )
         }
@@ -553,86 +570,127 @@ private fun SingleLineAyahText(
     project: VideoProject,
     previewScale: Float,
     opacityMultiplier: Float,
-    allowMarquee: Boolean
+    progressiveWordsOnly: Boolean,
+    activeWordIndex: Int
 ) {
     val style = project.ayahStyle
-    val displayText = if (line.isBismillah) {
-        line.text
-    } else {
-        "${line.text} ﴿${toArabicDigits(line.numberInSurah)}﴾"
-    }
-
     val fontOption = FontOption.fromId(style.fontId)
     val fontFamily = remember(fontOption) { FontFamily(Font(fontOption.fontResId)) }
-    val targetFontSp = (style.fontSizeSp * previewScale).coerceAtLeast(9f)
-    var shrunkFontSp by remember(displayText, targetFontSp, project.overflowMode) {
-        mutableFloatStateOf(targetFontSp)
-    }
-
-    LaunchedEffect(targetFontSp, displayText, project.overflowMode) {
-        shrunkFontSp = targetFontSp
-    }
+    val maxFontSp = (style.fontSizeSp * previewScale).coerceAtLeast(8f)
 
     val effectiveOpacity = (style.opacity * opacityMultiplier).coerceIn(0f, 1f)
     val baseColor = Color(style.colorArgb).copy(alpha = effectiveOpacity)
+    val rawAccentHex = if (project.themeStyle.accentHex == style.colorArgb) {
+        0xFFFFD54FL
+    } else {
+        project.themeStyle.accentHex
+    }
+    val highlightColor = Color(rawAccentHex).copy(alpha = effectiveOpacity)
     val tashkeelColor = Color(project.tashkeelColorArgb).copy(alpha = effectiveOpacity)
 
-    val annotated = remember(
-        displayText,
-        baseColor,
-        project.tashkeelColoringEnabled,
-        tashkeelColor,
-        shrunkFontSp,
-        project.tashkeelScale
-    ) {
-        ArabicTextRenderer.buildTashkeelAnnotatedString(
-            text = displayText,
-            baseColor = baseColor,
-            tashkeelEnabled = project.tashkeelColoringEnabled,
-            tashkeelColor = tashkeelColor,
-            baseFontSizeSp = shrunkFontSp,
-            tashkeelScale = project.tashkeelScale
-        )
-    }
-
     val textAlign = when (style.alignment) {
-        TextAlignmentMode.RIGHT -> TextAlign.Start // RTL Start = Right
-        TextAlignmentMode.LEFT -> TextAlign.End    // RTL End = Left
+        TextAlignmentMode.RIGHT -> TextAlign.Start
+        TextAlignmentMode.LEFT -> TextAlign.End
         TextAlignmentMode.CENTER -> TextAlign.Center
     }
 
-    val useMarquee = allowMarquee && project.overflowMode == SingleLineOverflowMode.MARQUEE
+    val textMeasurer = rememberTextMeasurer()
 
-    Text(
-        text = annotated,
-        fontFamily = fontFamily,
-        fontSize = shrunkFontSp.sp,
-        lineHeight = (shrunkFontSp * project.lineSpacingMultiplier).sp,
-        color = baseColor,
-        textAlign = textAlign,
-        maxLines = 1,
-        softWrap = false,
-        overflow = if (useMarquee) TextOverflow.Clip else TextOverflow.Visible,
-        style = TextStyle(
-            shadow = if (style.shadowEnabled) {
-                Shadow(
-                    color = Color.Black.copy(alpha = 0.78f * effectiveOpacity),
-                    offset = Offset(0f, 2f * previewScale),
-                    blurRadius = 6f * previewScale
-                )
-            } else null
-        ),
-        onTextLayout = { result ->
-            if (!useMarquee && result.didOverflowWidth && shrunkFontSp > 8f) {
-                shrunkFontSp = (shrunkFontSp * 0.88f).coerceAtLeast(8f)
-            }
-        },
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (useMarquee) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier
-            )
-    )
+            .clipToBounds(),
+        contentAlignment = Alignment.Center
+    ) {
+        val density = LocalDensity.current
+        val availableWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(24f)
+
+        val (fittedFontSp, annotated) = remember(
+            line.absoluteNumber,
+            line.text,
+            line.wordTimings,
+            progressiveWordsOnly,
+            activeWordIndex,
+            maxFontSp,
+            availableWidthPx,
+            fontOption.id,
+            baseColor,
+            highlightColor,
+            project.tashkeelColoringEnabled,
+            tashkeelColor,
+            project.tashkeelScale
+        ) {
+            fun buildForSize(fontSp: Float) = if (progressiveWordsOnly) {
+                ArabicTextRenderer.buildSpokenWordsAnnotatedString(
+                    words = line.wordTimings,
+                    fallbackText = line.text,
+                    activeWordIndex = activeWordIndex,
+                    ayahNumberInSurah = line.numberInSurah,
+                    isBismillah = line.isBismillah,
+                    normalColor = baseColor,
+                    highlightColor = highlightColor,
+                    tashkeelEnabled = project.tashkeelColoringEnabled,
+                    tashkeelColor = tashkeelColor,
+                    baseFontSizeSp = fontSp,
+                    tashkeelScale = project.tashkeelScale
+                )
+            } else {
+                val fullText = if (line.isBismillah) line.text else "${line.text} ﴿${toArabicDigits(line.numberInSurah)}﴾"
+                ArabicTextRenderer.buildTashkeelAnnotatedString(
+                    text = fullText,
+                    baseColor = baseColor,
+                    tashkeelEnabled = project.tashkeelColoringEnabled,
+                    tashkeelColor = tashkeelColor,
+                    baseFontSizeSp = fontSp,
+                    tashkeelScale = project.tashkeelScale
+                )
+            }
+
+            var candidateSp = maxFontSp
+            var candidateAnnotated = buildForSize(candidateSp)
+            val safeTargetWidthPx = availableWidthPx * 0.96f
+
+            var guard = 0
+            while (candidateSp > 4.5f && guard < 30) {
+                val measured = textMeasurer.measure(
+                    text = candidateAnnotated,
+                    style = TextStyle(fontFamily = fontFamily, fontSize = candidateSp.sp),
+                    maxLines = 1,
+                    softWrap = false,
+                    constraints = Constraints()
+                )
+                if (measured.size.width <= safeTargetWidthPx) {
+                    break
+                }
+                candidateSp = (candidateSp * 0.91f).coerceAtLeast(4f)
+                candidateAnnotated = buildForSize(candidateSp)
+                guard++
+            }
+            candidateSp to candidateAnnotated
+        }
+
+        Text(
+            text = annotated,
+            fontFamily = fontFamily,
+            fontSize = fittedFontSp.sp,
+            lineHeight = (fittedFontSp * project.lineSpacingMultiplier).sp,
+            color = baseColor,
+            textAlign = textAlign,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            style = TextStyle(
+                shadow = if (style.shadowEnabled) {
+                    Shadow(
+                        color = Color.Black.copy(alpha = 0.78f * effectiveOpacity),
+                        offset = Offset(0f, 2f * previewScale),
+                        blurRadius = 6f * previewScale
+                    )
+                } else null
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 @Composable
@@ -640,6 +698,7 @@ private fun OverlayLabelElement(
     text: String,
     style: TextLayerStyle,
     containerHeight: Dp,
+    safeSideMargin: Dp,
     scale: Float
 ) {
     val fontOption = FontOption.fromId(style.fontId)
@@ -655,7 +714,7 @@ private fun OverlayLabelElement(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = safeSideMargin)
             .padding(top = yOffset),
         contentAlignment = alignment
     ) {

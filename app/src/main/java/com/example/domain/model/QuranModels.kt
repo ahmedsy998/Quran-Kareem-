@@ -20,6 +20,13 @@ data class Surah(
         get() = if (revelationType.equals("Meccan", ignoreCase = true)) "مكية" else "مدنية"
 }
 
+data class WordTiming(
+    val index: Int,
+    val text: String,
+    val startMs: Long,
+    val endMs: Long
+)
+
 data class SyncedAyahLine(
     val index: Int,
     val numberInSurah: Int,
@@ -28,7 +35,22 @@ data class SyncedAyahLine(
     val isBismillah: Boolean,
     val audioSourceUri: String?,
     val startMs: Long,
-    val endMs: Long
+    val endMs: Long,
+    val wordTimings: List<WordTiming> = emptyList()
 ) {
     val durationMs: Long get() = (endMs - startMs).coerceAtLeast(1L)
+
+    fun activeWordIndexAt(offsetInAyahMs: Long): Int {
+        if (wordTimings.isEmpty()) return 0
+        val clamped = offsetInAyahMs.coerceAtLeast(0L)
+        var active = 0
+        for (i in 1 until wordTimings.size) {
+            if (clamped >= wordTimings[i].startMs) {
+                active = i
+            } else {
+                break
+            }
+        }
+        return active
+    }
 }

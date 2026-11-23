@@ -8,6 +8,7 @@ import com.example.domain.model.AudioSourceType
 import com.example.domain.model.Reciter
 import com.example.domain.model.Surah
 import com.example.domain.model.SyncedAyahLine
+import com.example.util.ArabicTextRenderer
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,10 +41,12 @@ data class PreparedAudioPackage(
 class AudioCacheManager(
     private val context: Context,
     private val okHttpClient: OkHttpClient,
-    private val mp3QuranService: Mp3QuranService
+    private val mp3QuranService: Mp3QuranService,
+    private val quranComService: QuranComService = NetworkModule.quranComService
 ) {
     private val audioRootDir = File(context.filesDir, "audio_cache").apply { mkdirs() }
     private val timingRootDir = File(context.filesDir, "timing_cache").apply { mkdirs() }
+    private val wordTimingRootDir = File(context.filesDir, "word_timing_cache").apply { mkdirs() }
 
     suspend fun prepareAudio(
         reciter: Reciter,
@@ -122,6 +125,12 @@ class AudioCacheManager(
             )
         }
 
+        val chapterSegments = loadOrFetchWordSegments(reciter.quranComRecitationId, surah.number)
+        val bismSegments = if (includeBismillah) {
+            if (surah.number == 1) chapterSegments["1:1"]
+            else loadOrFetchWordSegments(reciter.quranComRecitationId, 1)["1:1"]
+        } else null
+
         val total = pending.size
         val lines = ArrayList<SyncedAyahLine>(total)
         val files = ArrayList<File>(total)
@@ -141,6 +150,17 @@ class AudioCacheManager(
             val endMs = cursorMs + durMs
             cursorMs = endMs
 
+            val segmentsForItem = if (item.isBismillah) {
+                bismSegments
+            } else {
+                chapterSegments["${surah.number}:${item.numberInSurah}"]
+            }
+            val wordTimings = ArabicTextRenderer.buildWordTimings(
+                text = item.text,
+                ayahDurationMs = durMs,
+                rawSegments = segmentsForItem
+            )
+
             files.add(item.cacheFile)
             lines.add(
                 SyncedAyahLine(
@@ -151,7 +171,8 @@ class AudioCacheManager(
                     isBismillah = item.isBismillah,
                     audioSourceUri = Uri.fromFile(item.cacheFile).toString(),
                     startMs = startMs,
-                    endMs = endMs
+                    endMs = endMs,
+                    wordTimings = wordTimings
                 )
             )
         }
@@ -267,13 +288,23 @@ class AudioCacheManager(
             }
         }
 
+        val wordSegments = loadOrFetchWordSegments(reciter.quranComRecitationId, surah.number)
         val clipStartMs = rawLines.first().startMs
         val clipEndMs = rawLines.last().endMs.coerceAtMost(fullDurationMs)
         val normalizedLines = rawLines.mapIndexed { index, line ->
+            val normStart = (line.startMs - clipStartMs).coerceAtLeast(0L)
+            val normEnd = (line.endMs - clipStartMs).coerceAtLeast(normStart + 1L)
+            val rawSeg = if (line.isBismillah) null else wordSegments["${surah.number}:${line.numberInSurah}"]
+            val wordTimings = ArabicTextRenderer.buildWordTimings(
+                text = line.text,
+                ayahDurationMs = (normEnd - normStart).coerceAtLeast(1L),
+                rawSegments = rawSeg
+            )
             line.copy(
                 index = index,
-                startMs = (line.startMs - clipStartMs).coerceAtLeast(0L),
-                endMs = (line.endMs - clipStartMs).coerceAtLeast(1L)
+                startMs = normStart,
+                endMs = normEnd,
+                wordTimings = wordTimings
             )
         }
         val totalDur = (clipEndMs - clipStartMs).coerceAtLeast(1000L)
@@ -312,6 +343,36 @@ class AudioCacheManager(
             }
             remote
         }.getOrDefault(emptyList())
+    }
+
+    private suspend fun loadOrFetchWordSegments(
+        quranComRecitationId: Int?,
+        surahNumber: Int
+    ): Map<String, List<List<Double>>> {
+        if (quranComRecitationId == null) return emptyMap()
+        val cacheFile = File(wordTimingRootDir, "${quranComRecitationId}_$surahNumber.json")
+        val adapter = NetworkModule.moshi.adapter(QuranComSegmentsResponse::class.java)
+
+        if (cacheFile.exists() && cacheFile.length() > 10L) {
+            runCatching {
+                adapter.fromJson(cacheFile.readText())
+            }.getOrNull()?.let { cached ->
+                if (cached.audioFiles.isNotEmpty()) {
+                    return cached.audioFiles.associate { it.verseKey to it.segments }
+                }
+            }
+        }
+
+        return runCatching {
+            val remote = quranComService.getChapterSegments(
+                recitationId = quranComRecitationId,
+                surah = surahNumber
+            )
+            if (remote.audioFiles.isNotEmpty()) {
+                cacheFile.writeText(adapter.toJson(remote))
+            }
+            remote.audioFiles.associate { it.verseKey to it.segments }
+        }.getOrDefault(emptyMap())
     }
 
     private fun downloadFileWithFallback(primaryUrl: String, fallbackUrl: String?, destination: File) {

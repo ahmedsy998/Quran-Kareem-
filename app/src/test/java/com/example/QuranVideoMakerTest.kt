@@ -118,4 +118,106 @@ class QuranVideoMakerTest {
         assertEquals(8, BundledBackgrounds.images.size)
         assertEquals(5, BundledBackgrounds.videos.size)
     }
+
+    @Test
+    fun `word tokenization keeps standalone waqf marks attached and builds real segment timings`() {
+        val sampleWithWaqf = "ذَٰلِكَ ٱلْكِتَٰبُ لَا رَيْبَ ۛ فِيهِ ۛ هُدًى لِّلْمُتَّقِينَ"
+        val words = ArabicTextRenderer.tokenizeQuranWords(sampleWithWaqf)
+        // Standalone ۛ stop signs merge into previous words instead of becoming separate spoken words (7 spoken words, not 9)
+        assertEquals(7, words.size)
+        assertTrue(words[3].contains("ۛ"))
+        assertTrue(words[4].contains("ۛ"))
+
+        val simpleAyah = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ"
+        val realSegments = listOf(
+            listOf(0.0, 1.0, 60.0, 610.0),
+            listOf(1.0, 2.0, 620.0, 1310.0),
+            listOf(2.0, 3.0, 1320.0, 2450.0),
+            listOf(3.0, 4.0, 2460.0, 5970.0)
+        )
+        val timings = ArabicTextRenderer.buildWordTimings(
+            text = simpleAyah,
+            ayahDurationMs = 6000L,
+            rawSegments = realSegments
+        )
+        assertEquals(4, timings.size)
+        assertEquals(0L, timings[0].startMs)
+        assertEquals(620L, timings[1].startMs)
+        assertEquals(1320L, timings[2].startMs)
+        assertEquals(2460L, timings[3].startMs)
+
+        val line = com.example.domain.model.SyncedAyahLine(
+            index = 0,
+            numberInSurah = 1,
+            absoluteNumber = 1,
+            text = simpleAyah,
+            isBismillah = false,
+            audioSourceUri = null,
+            startMs = 0L,
+            endMs = 6000L,
+            wordTimings = timings
+        )
+        assertEquals(0, line.activeWordIndexAt(0L))
+        assertEquals(1, line.activeWordIndexAt(700L))
+        assertEquals(2, line.activeWordIndexAt(1500L))
+        assertEquals(3, line.activeWordIndexAt(3000L))
+    }
+
+    @Test
+    fun `proportional fallback and spoken words renderer omit unrecited words completely`() {
+        val text = "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَٰلَمِينَ"
+        val estimated = ArabicTextRenderer.buildWordTimings(
+            text = text,
+            ayahDurationMs = 4000L,
+            rawSegments = null
+        )
+        assertEquals(4, estimated.size)
+        assertEquals(0L, estimated.first().startMs)
+        assertEquals(4000L, estimated.last().endMs)
+        for (i in 1 until estimated.size) {
+            assertTrue(estimated[i].startMs > estimated[i - 1].startMs)
+        }
+
+        val normalColor = Color.White
+        val highlightColor = Color(0xFFD4AF37)
+        val tashkeelColor = Color(0xFFFFD54F)
+
+        val step1 = ArabicTextRenderer.buildSpokenWordsAnnotatedString(
+            words = estimated,
+            fallbackText = text,
+            activeWordIndex = 1,
+            ayahNumberInSurah = 2,
+            isBismillah = false,
+            normalColor = normalColor,
+            highlightColor = highlightColor,
+            tashkeelEnabled = true,
+            tashkeelColor = tashkeelColor,
+            baseFontSizeSp = 28f,
+            tashkeelScale = 1.0f
+        )
+        // Only the first two words are present; remaining words and end badge are completely hidden
+        assertTrue(step1.text.contains("ٱلْحَمْدُ"))
+        assertTrue(step1.text.contains("لِلَّهِ"))
+        assertFalse(step1.text.contains("رَبِّ"))
+        assertFalse(step1.text.contains("ٱلْعَٰلَمِينَ"))
+        assertFalse(step1.text.contains("﴿٢﴾"))
+        assertTrue(step1.spanStyles.any { it.item.color == normalColor })
+        assertTrue(step1.spanStyles.any { it.item.color == highlightColor })
+
+        val stepFinal = ArabicTextRenderer.buildSpokenWordsAnnotatedString(
+            words = estimated,
+            fallbackText = text,
+            activeWordIndex = 3,
+            ayahNumberInSurah = 2,
+            isBismillah = false,
+            normalColor = normalColor,
+            highlightColor = highlightColor,
+            tashkeelEnabled = true,
+            tashkeelColor = tashkeelColor,
+            baseFontSizeSp = 28f,
+            tashkeelScale = 1.0f
+        )
+        assertTrue(stepFinal.text.contains("ٱلْعَٰلَمِينَ"))
+        assertTrue(stepFinal.text.contains("﴿٢﴾"))
+    }
 }

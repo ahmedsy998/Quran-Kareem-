@@ -8,6 +8,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Path
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
@@ -39,6 +40,17 @@ data class AyahTimingDto(
     @Json(name = "end_time") val endTimeMs: Long = 0L
 )
 
+@JsonClass(generateAdapter = true)
+data class QuranComSegmentsResponse(
+    @Json(name = "audio_files") val audioFiles: List<QuranComAudioFileDto> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class QuranComAudioFileDto(
+    @Json(name = "verse_key") val verseKey: String = "",
+    val segments: List<List<Double>> = emptyList()
+)
+
 interface Mp3QuranService {
     @GET("api/v3/reciters")
     suspend fun getReciters(@Query("language") language: String = "ar"): Mp3QuranRecitersResponse
@@ -48,6 +60,16 @@ interface Mp3QuranService {
         @Query("surah") surah: Int,
         @Query("read") readId: Int
     ): List<AyahTimingDto>
+}
+
+interface QuranComService {
+    @GET("api/v4/recitations/{recitationId}/by_chapter/{surah}")
+    suspend fun getChapterSegments(
+        @Path("recitationId") recitationId: Int,
+        @Path("surah") surah: Int,
+        @Query("per_page") perPage: Int = 300,
+        @Query("fields") fields: String = "segments"
+    ): QuranComSegmentsResponse
 }
 
 object NetworkModule {
@@ -73,5 +95,14 @@ object NetworkModule {
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(Mp3QuranService::class.java)
+    }
+
+    val quranComService: QuranComService by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://api.quran.com/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+            .create(QuranComService::class.java)
     }
 }
